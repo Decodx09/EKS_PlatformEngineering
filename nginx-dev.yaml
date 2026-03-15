@@ -1,0 +1,79 @@
+---
+# 1. ConfigMap to hold our custom index.html
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dev-page-config
+data:
+  index.html: |
+    <html>
+      <head><title>Dev Page</title></head>
+      <body>
+        <h1 style="font-family: sans-serif; margin: 40px;">dev page</h1>
+      </body>
+    </html>
+
+---
+# 2. Deployment to spin up the Nginx Pod
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dev-nginx
+  template:
+    metadata:
+      labels:
+        app: dev-nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: html-volume
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: html-volume
+          configMap:
+            name: dev-page-config
+
+---
+# 3. ClusterIP Service — ALB controller routes directly to pod IPs (target-type: ip)
+apiVersion: v1
+kind: Service
+metadata:
+  name: dev-nginx-service
+spec:
+  selector:
+    app: dev-nginx
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+
+---
+# 4. Ingress — ALB controller auto-discovers public subnets via VPC tags set by Terraform
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dev-nginx-alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dev-nginx-service
+                port:
+                  number: 80
